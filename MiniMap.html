@@ -1,0 +1,1443 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Eden Bounty Realistic Map</title>
+    <style>
+		// Recebe dados do sistema principal
+		window.miniMap = {
+			refreshData: function(newStructures, newPlannings) {
+				structures = newStructures || [];
+				plannings = newPlannings || {};
+				
+				// Ajusta o formato dos dados se necessário
+				structures = structures.map(s => ({
+					...s,
+					// Garante que as coordenadas sejam strings
+					X: String(s.X),
+					Y: String(s.Y)
+				}));
+				
+				renderStructures();
+				updateStatistics();
+			}
+		};
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: radial-gradient(circle at center, #2c2c2c 0%, #1a1a1a 50%, #0f0f0f 100%);
+            color: #ffffff;
+            font-family: 'Arial', sans-serif;
+            overflow: hidden;
+            height: 100vh;
+            position: relative;
+        }
+
+        /* Epic background atmosphere */
+        body::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: 
+                radial-gradient(circle at 20% 30%, rgba(139, 69, 19, 0.1) 0%, transparent 50%),
+                radial-gradient(circle at 80% 70%, rgba(34, 139, 34, 0.1) 0%, transparent 50%),
+                linear-gradient(135deg, rgba(47, 79, 79, 0.2) 0%, rgba(25, 25, 112, 0.1) 100%);
+            animation: atmosphereShift 30s ease-in-out infinite;
+            pointer-events: none;
+        }
+
+        @keyframes atmosphereShift {
+            0%, 100% { transform: scale(1) rotate(0deg); opacity: 0.6; }
+            50% { transform: scale(1.05) rotate(0.5deg); opacity: 0.8; }
+        }
+
+        .minimap-container {
+            position: relative;
+            width: 100%;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            z-index: 1;
+        }
+
+        .minimap-header {
+            background: linear-gradient(135deg, rgba(20, 20, 20, 0.95) 0%, rgba(40, 40, 40, 0.9) 100%);
+            backdrop-filter: blur(20px);
+            padding: 15px;
+            text-align: center;
+            border-bottom: 3px solid transparent;
+            border-image: linear-gradient(90deg, #8B4513, #DAA520, #8B4513) 1;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+        }
+
+        .minimap-header h2 {
+            background: linear-gradient(45deg, #DAA520, #FFD700, #F4A460);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 12px;
+            font-size: 1.8rem;
+            text-shadow: 0 0 20px rgba(218, 165, 32, 0.5);
+            animation: titleGlow 4s ease-in-out infinite;
+            letter-spacing: 2px;
+        }
+
+        @keyframes titleGlow {
+            0%, 100% { filter: brightness(1); }
+            50% { filter: brightness(1.3); }
+        }
+
+        .map-controls {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .control-btn {
+            background: linear-gradient(145deg, rgba(139, 69, 19, 0.3), rgba(160, 82, 45, 0.2));
+            border: 2px solid rgba(218, 165, 32, 0.6);
+            border-radius: 20px;
+            padding: 6px 14px;
+            color: #F5DEB3;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 600;
+            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            position: relative;
+            overflow: hidden;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .control-btn::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 215, 0, 0.3), transparent);
+            transition: left 0.6s;
+        }
+
+        .control-btn:hover::before {
+            left: 100%;
+        }
+
+        .control-btn:hover {
+            background: linear-gradient(145deg, rgba(139, 69, 19, 0.5), rgba(160, 82, 45, 0.4));
+            transform: translateY(-2px) scale(1.05);
+            box-shadow: 0 8px 25px rgba(218, 165, 32, 0.4);
+        }
+
+        .control-btn.active {
+            background: linear-gradient(145deg, rgba(218, 165, 32, 0.6), rgba(255, 215, 0, 0.4));
+            border-color: #FFD700;
+            color: #8B4513;
+            box-shadow: 0 0 20px rgba(255, 215, 0, 0.6);
+            transform: scale(1.1);
+        }
+
+        .map-viewport {
+            flex: 1;
+            position: relative;
+            overflow: hidden;
+            background: linear-gradient(135deg, #2F4F4F 0%, #696969 50%, #556B2F 100%);
+        }
+
+        .map-svg {
+            width: 100%;
+            height: 100%;
+            cursor: grab;
+            filter: drop-shadow(0 0 15px rgba(0, 0, 0, 0.7));
+        }
+
+        .map-svg:active {
+            cursor: grabbing;
+        }
+
+        /* Terrain and Biome Styles */
+        .terrain-base {
+            fill: url(#terrainGradient);
+            stroke: none;
+        }
+
+        .sector {
+            fill: url(#sectorGradient);
+            stroke: rgba(139, 69, 19, 0.8);
+            stroke-width: 2;
+            stroke-dasharray: 3,3;
+            animation: sectorBreathe 6s ease-in-out infinite;
+            filter: drop-shadow(0 0 8px rgba(139, 69, 19, 0.3));
+        }
+
+        .sector.north {
+            fill: url(#northBiome);
+            stroke: rgba(178, 34, 34, 0.8);
+        }
+
+        .sector.south {
+            fill: url(#southBiome);
+            stroke: rgba(70, 130, 180, 0.8);
+        }
+
+        .sector.central {
+            fill: url(#centralBiome);
+            stroke: rgba(218, 165, 32, 0.9);
+            stroke-width: 3;
+            animation: centralPower 4s ease-in-out infinite;
+        }
+
+        .sector.west {
+            fill: url(#westBiome);
+            stroke: rgba(107, 142, 35, 0.8);
+        }
+
+        .sector.east {
+            fill: url(#eastBiome);
+            stroke: rgba(188, 143, 143, 0.8);
+        }
+
+        @keyframes sectorBreathe {
+            0%, 100% { stroke-opacity: 0.6; transform: scale(1); }
+            50% { stroke-opacity: 1; transform: scale(1.005); }
+        }
+
+        @keyframes centralPower {
+            0%, 100% { 
+                stroke-opacity: 0.8; 
+                transform: scale(1); 
+                filter: drop-shadow(0 0 8px rgba(218, 165, 32, 0.3));
+            }
+            50% { 
+                stroke-opacity: 1; 
+                transform: scale(1.01); 
+                filter: drop-shadow(0 0 15px rgba(218, 165, 32, 0.6));
+            }
+        }
+
+        /* Rivers */
+        .river {
+            stroke: #4682B4;
+            stroke-width: 4;
+            fill: none;
+            opacity: 0.8;
+            filter: drop-shadow(0 0 5px rgba(70, 130, 180, 0.5));
+            animation: riverFlow 8s ease-in-out infinite;
+        }
+
+        @keyframes riverFlow {
+            0%, 100% { stroke-dashoffset: 0; opacity: 0.7; }
+            50% { stroke-dashoffset: 10; opacity: 1; }
+        }
+
+        /* Roads/Paths */
+        .road {
+            stroke: #8B4513;
+            stroke-width: 2;
+            fill: none;
+            stroke-dasharray: 2,2;
+            opacity: 0.6;
+            animation: roadPulse 4s ease-in-out infinite;
+        }
+
+        @keyframes roadPulse {
+            0%, 100% { stroke-opacity: 0.4; }
+            50% { stroke-opacity: 0.8; }
+        }
+
+        /* Enhanced Structures */
+        .structure {
+            cursor: pointer;
+            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            filter: drop-shadow(0 0 5px rgba(0, 0, 0, 0.8));
+        }
+
+        .structure:hover {
+            transform: scale(1.5);
+            filter: drop-shadow(0 0 20px currentColor) brightness(1.4);
+        }
+
+        .structure.locked {
+            fill: url(#lockedStructure);
+            stroke: #696969;
+            opacity: 0.5;
+            animation: lockedPulse 3s ease-in-out infinite;
+        }
+
+        .structure.available {
+            fill: url(#availableStructure);
+            stroke: #FF8C00;
+            animation: availableGlow 2s ease-in-out infinite;
+        }
+
+        .structure.planned {
+            fill: url(#plannedStructure);
+            stroke: #32CD32;
+            animation: plannedPower 2s ease-in-out infinite;
+        }
+
+        .structure.occupation {
+            fill: url(#occupationStructure);
+            stroke: #00BFFF;
+            animation: occupationBlaze 1s ease-in-out infinite;
+            filter: drop-shadow(0 0 15px #00BFFF);
+        }
+
+        .structure.lobby {
+            fill: url(#lobbyStructure);
+            stroke: #FFD700;
+            animation: lobbyMystic 4s ease-in-out infinite;
+        }
+
+        /* Structure Animations */
+        @keyframes lockedPulse {
+            0%, 100% { opacity: 0.3; }
+            50% { opacity: 0.6; }
+        }
+
+        @keyframes availableGlow {
+            0%, 100% { 
+                transform: scale(1); 
+                filter: drop-shadow(0 0 8px #FF8C00);
+            }
+            50% { 
+                transform: scale(1.1); 
+                filter: drop-shadow(0 0 15px #FF8C00);
+            }
+        }
+
+        @keyframes plannedPower {
+            0%, 100% { 
+                filter: drop-shadow(0 0 8px #32CD32);
+                transform: scale(1);
+            }
+            50% { 
+                filter: drop-shadow(0 0 18px #32CD32);
+                transform: scale(1.15);
+            }
+        }
+
+        @keyframes occupationBlaze {
+            0%, 100% { 
+                transform: scale(1); 
+                filter: drop-shadow(0 0 15px #00BFFF) brightness(1);
+            }
+            25% { 
+                transform: scale(1.3); 
+                filter: drop-shadow(0 0 25px #00BFFF) brightness(1.4);
+            }
+            75% { 
+                transform: scale(1.1); 
+                filter: drop-shadow(0 0 20px #87CEEB) brightness(1.2);
+            }
+        }
+
+        @keyframes lobbyMystic {
+            0%, 100% { 
+                transform: rotate(0deg) scale(1);
+                filter: drop-shadow(0 0 10px #FFD700);
+            }
+            33% { 
+                transform: rotate(120deg) scale(1.2);
+                filter: drop-shadow(0 0 15px #FFA500);
+            }
+            66% { 
+                transform: rotate(240deg) scale(1.1);
+                filter: drop-shadow(0 0 12px #FFD700);
+            }
+        }
+
+        /* Structure Size Classes */
+        .structure.stronghold { r: 7; }
+        .structure.small-town { r: 5; }
+        .structure.large-town { r: 8; }
+        .structure.capitol { r: 10; }
+        .structure.world-center { r: 14; }
+        .structure.lobby { r: 7; }
+        .structure.checkpoint { r: 4; }
+
+        .sector-label {
+            fill: #F5DEB3;
+            font-size: 14px;
+            font-weight: bold;
+            text-anchor: middle;
+            pointer-events: none;
+            filter: drop-shadow(0 0 5px rgba(0, 0, 0, 0.9));
+            animation: labelGlow 5s ease-in-out infinite;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.8);
+        }
+
+        @keyframes labelGlow {
+            0%, 100% { opacity: 0.9; }
+            50% { opacity: 1; }
+        }
+
+        /* Enhanced Legend */
+        .legend {
+            position: absolute;
+            top: 70px;
+            right: 15px;
+            background: linear-gradient(135deg, rgba(20, 20, 20, 0.95) 0%, rgba(40, 40, 40, 0.9) 100%);
+            backdrop-filter: blur(20px);
+            border-radius: 12px;
+            padding: 18px;
+            font-size: 12px;
+            max-width: 220px;
+            border: 2px solid rgba(218, 165, 32, 0.4);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+        }
+
+        .legend h4 {
+            color: #DAA520;
+            margin-bottom: 10px;
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            border-bottom: 1px solid rgba(218, 165, 32, 0.4);
+            padding-bottom: 5px;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 6px;
+            padding: 3px;
+            border-radius: 6px;
+            transition: background 0.3s ease;
+        }
+
+        .legend-item:hover {
+            background: rgba(218, 165, 32, 0.1);
+        }
+
+        .legend-color {
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            margin-right: 10px;
+            border: 1px solid rgba(245, 222, 179, 0.4);
+            position: relative;
+            overflow: hidden;
+        }
+
+        /* Enhanced Tooltip */
+        .tooltip {
+            position: absolute;
+            background: linear-gradient(135deg, rgba(20, 20, 20, 0.98) 0%, rgba(40, 40, 40, 0.95) 100%);
+            color: #F5DEB3;
+            padding: 15px 18px;
+            border-radius: 10px;
+            font-size: 12px;
+            pointer-events: none;
+            z-index: 1000;
+            max-width: 280px;
+            border: 2px solid rgba(218, 165, 32, 0.6);
+            backdrop-filter: blur(15px);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.7);
+            transform: translateY(-10px);
+            opacity: 0;
+            transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+
+        .tooltip.show {
+            transform: translateY(0);
+            opacity: 1;
+        }
+
+        .tooltip::before {
+            content: '';
+            position: absolute;
+            bottom: -8px;
+            left: 20px;
+            width: 0;
+            height: 0;
+            border-left: 8px solid transparent;
+            border-right: 8px solid transparent;
+            border-top: 8px solid rgba(40, 40, 40, 0.95);
+        }
+
+        /* Enhanced Zoom Controls */
+        .zoom-controls {
+            position: absolute;
+            bottom: 25px;
+            right: 25px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .zoom-btn {
+            width: 48px;
+            height: 48px;
+            background: linear-gradient(145deg, rgba(139, 69, 19, 0.4), rgba(160, 82, 45, 0.3));
+            border: 2px solid rgba(218, 165, 32, 0.6);
+            border-radius: 50%;
+            color: #F5DEB3;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            font-weight: bold;
+            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            backdrop-filter: blur(10px);
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.4);
+        }
+
+        .zoom-btn:hover {
+            background: linear-gradient(145deg, rgba(139, 69, 19, 0.6), rgba(160, 82, 45, 0.5));
+            transform: scale(1.1);
+            box-shadow: 0 6px 20px rgba(218, 165, 32, 0.5);
+        }
+
+        .zoom-btn:active {
+            transform: scale(0.95);
+        }
+
+        /* Enhanced Info Panel */
+        .info-panel {
+            position: absolute;
+            bottom: 25px;
+            left: 25px;
+            background: linear-gradient(135deg, rgba(20, 20, 20, 0.95) 0%, rgba(40, 40, 40, 0.9) 100%);
+            backdrop-filter: blur(20px);
+            border-radius: 12px;
+            padding: 18px;
+            font-size: 12px;
+            max-width: 280px;
+            border: 2px solid rgba(218, 165, 32, 0.4);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+        }
+
+        .info-panel h4 {
+            color: #DAA520;
+            margin-bottom: 12px;
+            font-size: 14px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .info-panel p {
+            margin-bottom: 6px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            color: #F5DEB3;
+        }
+
+        .info-panel span {
+            font-weight: bold;
+            color: #32CD32;
+            font-size: 13px;
+        }
+
+        /* Mobile Responsive */
+        @media (max-width: 768px) {
+            .legend, .info-panel {
+                position: relative;
+                margin: 10px;
+                max-width: none;
+            }
+            
+            .map-controls {
+                flex-direction: column;
+                align-items: center;
+                gap: 6px;
+            }
+            
+            .control-btn {
+                min-width: 100px;
+                padding: 8px 14px;
+            }
+
+            .zoom-controls {
+                bottom: 15px;
+                right: 15px;
+            }
+
+            .zoom-btn {
+                width: 42px;
+                height: 42px;
+                font-size: 16px;
+            }
+        }
+
+        /* Loading Animation */
+        .loading-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(20, 20, 20, 0.95);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            backdrop-filter: blur(5px);
+        }
+
+        .loading-spinner {
+            width: 60px;
+            height: 60px;
+            border: 4px solid rgba(218, 165, 32, 0.3);
+            border-top: 4px solid #DAA520;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="minimap-container">
+        <div class="minimap-header">
+            <h2>🏰 EDEN BOUNTY REALM MAP 🏰</h2>
+            <div class="map-controls">
+                <button class="control-btn active" data-filter="all">🌍 All Structures</button>
+                <button class="control-btn" data-filter="planned">📋 Planned</button>
+                <button class="control-btn" data-filter="north">🔴 North</button>
+                <button class="control-btn" data-filter="south">🔵 South</button>
+                <button class="control-btn" data-filter="lobbies">🏛️ Lobbies</button>
+                <button class="control-btn" data-filter="available">⚡ Available</button>
+                <button class="control-btn" onclick="resetView()">🎯 Reset</button>
+            </div>
+        </div>
+
+        <div class="map-viewport">
+            <!-- Loading Overlay -->
+            <div class="loading-overlay" id="loadingOverlay">
+                <div class="loading-spinner"></div>
+            </div>
+
+            <svg class="map-svg" id="mapSvg" viewBox="0 0 1600 1600" preserveAspectRatio="xMidYMid meet">
+                <!-- Enhanced Gradients and Terrain -->
+                <defs>
+                    <!-- Terrain Gradients -->
+                    <radialGradient id="terrainGradient" cx="50%" cy="50%" r="70%">
+                        <stop offset="0%" style="stop-color:#8FBC8F;stop-opacity:1" />
+                        <stop offset="50%" style="stop-color:#F4A460;stop-opacity:1" />
+                        <stop offset="100%" style="stop-color:#D2B48C;stop-opacity:1" />
+                    </radialGradient>
+
+                    <!-- Biome Gradients -->
+                    <radialGradient id="northBiome" cx="50%" cy="30%" r="60%">
+                        <stop offset="0%" style="stop-color:#DEB887;stop-opacity:0.8" />
+                        <stop offset="70%" style="stop-color:#F4A460;stop-opacity:0.6" />
+                        <stop offset="100%" style="stop-color:#CD853F;stop-opacity:0.4" />
+                    </radialGradient>
+
+                    <radialGradient id="southBiome" cx="50%" cy="70%" r="60%">
+                        <stop offset="0%" style="stop-color:#DEB887;stop-opacity:0.8" />
+                        <stop offset="70%" style="stop-color:#F4A460;stop-opacity:0.6" />
+                        <stop offset="100%" style="stop-color:#CD853F;stop-opacity:0.4" />
+                    </radialGradient>
+
+                    <radialGradient id="centralBiome" cx="50%" cy="50%" r="50%">
+                        <stop offset="0%" style="stop-color:#9ACD32;stop-opacity:0.9" />
+                        <stop offset="50%" style="stop-color:#8FBC8F;stop-opacity:0.7" />
+                        <stop offset="100%" style="stop-color:#6B8E23;stop-opacity:0.5" />
+                    </radialGradient>
+
+                    <radialGradient id="westBiome" cx="30%" cy="50%" r="60%">
+                        <stop offset="0%" style="stop-color:#9ACD32;stop-opacity:0.8" />
+                        <stop offset="70%" style="stop-color:#8FBC8F;stop-opacity:0.6" />
+                        <stop offset="100%" style="stop-color:#556B2F;stop-opacity:0.4" />
+                    </radialGradient>
+
+                    <radialGradient id="eastBiome" cx="70%" cy="50%" r="60%">
+                        <stop offset="0%" style="stop-color:#9ACD32;stop-opacity:0.8" />
+                        <stop offset="70%" style="stop-color:#8FBC8F;stop-opacity:0.6" />
+                        <stop offset="100%" style="stop-color:#556B2F;stop-opacity:0.4" />
+                    </radialGradient>
+
+                    <!-- Structure Gradients -->
+                    <radialGradient id="lockedStructure" cx="30%" cy="30%" r="70%">
+                        <stop offset="0%" style="stop-color:#A9A9A9;stop-opacity:1" />
+                        <stop offset="100%" style="stop-color:#696969;stop-opacity:1" />
+                    </radialGradient>
+
+                    <radialGradient id="availableStructure" cx="30%" cy="30%" r="70%">
+                        <stop offset="0%" style="stop-color:#FFA500;stop-opacity:1" />
+                        <stop offset="100%" style="stop-color:#FF8C00;stop-opacity:1" />
+                    </radialGradient>
+
+                    <radialGradient id="plannedStructure" cx="30%" cy="30%" r="70%">
+                        <stop offset="0%" style="stop-color:#98FB98;stop-opacity:1" />
+                        <stop offset="100%" style="stop-color:#32CD32;stop-opacity:1" />
+                    </radialGradient>
+
+                    <radialGradient id="occupationStructure" cx="30%" cy="30%" r="70%">
+                        <stop offset="0%" style="stop-color:#87CEEB;stop-opacity:1" />
+                        <stop offset="100%" style="stop-color:#00BFFF;stop-opacity:1" />
+                    </radialGradient>
+
+                    <radialGradient id="lobbyStructure" cx="30%" cy="30%" r="70%">
+                        <stop offset="0%" style="stop-color:#FFD700;stop-opacity:1" />
+                        <stop offset="100%" style="stop-color:#FFA500;stop-opacity:1" />
+                    </radialGradient>
+
+                    <!-- Terrain Textures -->
+                    <pattern id="grassTexture" x="0" y="0" width="20" height="20" patternUnits="userSpaceOnUse">
+                        <rect width="20" height="20" fill="#8FBC8F" opacity="0.3"/>
+                        <circle cx="5" cy="5" r="1" fill="#556B2F" opacity="0.4"/>
+                        <circle cx="15" cy="10" r="0.5" fill="#6B8E23" opacity="0.6"/>
+                        <circle cx="10" cy="15" r="0.8" fill="#9ACD32" opacity="0.3"/>
+                    </pattern>
+
+                    <pattern id="desertTexture" x="0" y="0" width="15" height="15" patternUnits="userSpaceOnUse">
+                        <rect width="15" height="15" fill="#F4A460" opacity="0.2"/>
+                        <circle cx="3" cy="3" r="0.5" fill="#D2B48C" opacity="0.5"/>
+                        <circle cx="12" cy="8" r="0.3" fill="#DEB887" opacity="0.7"/>
+                        <circle cx="7" cy="12" r="0.6" fill="#CD853F" opacity="0.4"/>
+                    </pattern>
+                </defs>
+
+                <!-- Base Terrain -->
+                <rect width="1600" height="1600" fill="url(#terrainGradient)"/>
+                <rect width="1600" height="1600" fill="url(#grassTexture)" opacity="0.3"/>
+
+                <!-- Major Rivers -->
+                <g id="rivers">
+                    <path class="river" d="M 0 350 Q 200 320 400 350 Q 600 380 800 350 Q 1000 320 1200 350 Q 1400 380 1600 350" 
+                          stroke-dasharray="8,4"/>
+                    <path class="river" d="M 0 1250 Q 200 1220 400 1250 Q 600 1280 800 1250 Q 1000 1220 1200 1250 Q 1400 1280 1600 1250" 
+                          stroke-dasharray="8,4"/>
+                    <path class="river" d="M 350 0 Q 320 200 350 400 Q 380 600 350 800 Q 320 1000 350 1200 Q 380 1400 350 1600" 
+                          stroke-dasharray="6,3" stroke-width="3"/>
+                    <path class="river" d="M 1250 0 Q 1220 200 1250 400 Q 1280 600 1250 800 Q 1220 1000 1250 1200 Q 1280 1400 1250 1600" 
+                          stroke-dasharray="6,3" stroke-width="3"/>
+                </g>
+
+                <!-- Road Network -->
+                <g id="roads">
+                    <!-- Horizontal roads -->
+                    <path class="road" d="M 0 200 Q 400 180 800 200 Q 1200 220 1600 200"/>
+                    <path class="road" d="M 0 800 Q 400 780 800 800 Q 1200 820 1600 800"/>
+                    <path class="road" d="M 0 1400 Q 400 1380 800 1400 Q 1200 1420 1600 1400"/>
+                    
+                    <!-- Vertical roads -->
+                    <path class="road" d="M 200 0 Q 180 400 200 800 Q 220 1200 200 1600"/>
+                    <path class="road" d="M 800 0 Q 780 400 800 800 Q 820 1200 800 1600"/>
+                    <path class="road" d="M 1400 0 Q 1380 400 1400 800 Q 1420 1200 1400 1600"/>
+                </g>
+
+                <!-- Organic Sectors (matching real game shapes) -->
+                <g id="sectors">
+                    <!-- North Sectors -->
+                    <path class="sector north" d="M 0 0 Q 200 50 400 0 L 400 380 Q 350 400 300 380 Q 200 360 100 380 Q 50 350 0 380 Z" 
+                          data-sector="North Sector 1"/>
+                    <path class="sector north" d="M 400 0 Q 600 50 800 0 L 800 380 Q 750 400 700 380 Q 600 360 500 380 Q 450 350 400 380 Z" 
+                          data-sector="North Sector 2"/>
+                    <path class="sector north" d="M 800 0 Q 1000 50 1200 0 L 1200 380 Q 1150 400 1100 380 Q 1000 360 900 380 Q 850 350 800 380 Z" 
+                          data-sector="North Sector 3"/>
+                    <path class="sector north" d="M 1200 0 Q 1400 50 1600 0 L 1600 380 Q 1550 400 1500 380 Q 1400 360 1300 380 Q 1250 350 1200 380 Z" 
+                          data-sector="North Sector 4"/>
+                    
+                    <!-- Central Sectors -->
+                    <path class="sector west" d="M 0 450 Q 100 430 200 450 Q 350 470 500 450 Q 600 480 700 450 L 700 1150 Q 600 1120 500 1150 Q 350 1130 200 1150 Q 100 1170 0 1150 Z" 
+                          data-sector="W Central"/>
+                    <circle class="sector central" cx="800" cy="800" r="180" data-sector="Central Temple"/>
+                    <path class="sector east" d="M 900 450 Q 1000 430 1100 450 Q 1250 470 1400 450 Q 1500 480 1600 450 L 1600 1150 Q 1500 1120 1400 1150 Q 1250 1130 1100 1150 Q 1000 1170 900 1150 Z" 
+                          data-sector="E Central"/>
+                    
+                    <!-- South Sectors -->
+                    <path class="sector south" d="M 0 1220 Q 50 1250 100 1220 Q 200 1240 300 1220 Q 350 1200 400 1220 L 400 1600 Q 200 1550 0 1600 Z" 
+                          data-sector="South Sector 4"/>
+                    <path class="sector south" d="M 400 1220 Q 450 1250 500 1220 Q 600 1240 700 1220 Q 750 1200 800 1220 L 800 1600 Q 600 1550 400 1600 Z" 
+                          data-sector="South Sector 3"/>
+                    <path class="sector south" d="M 800 1220 Q 850 1250 900 1220 Q 1000 1240 1100 1220 Q 1150 1200 1200 1220 L 1200 1600 Q 1000 1550 800 1600 Z" 
+                          data-sector="South Sector 2"/>
+                    <path class="sector south" d="M 1200 1220 Q 1250 1250 1300 1220 Q 1400 1240 1500 1220 Q 1550 1200 1600 1220 L 1600 1600 Q 1400 1550 1200 1600 Z" 
+                          data-sector="South Sector 1"/>
+                </g>
+
+                <!-- Sector Labels -->
+                <g id="sectorLabels">
+                    <text x="200" y="50" class="sector-label">⚔️ NORTH SECTOR 1</text>
+                    <text x="600" y="50" class="sector-label">🛡️ NORTH SECTOR 2</text>
+                    <text x="1000" y="50" class="sector-label">🏰 NORTH SECTOR 3</text>
+                    <text x="1400" y="50" class="sector-label">⚔️ NORTH SECTOR 4</text>
+                    
+                    <text x="200" y="1580" class="sector-label">🔵 SOUTH SECTOR 4</text>
+                    <text x="600" y="1580" class="sector-label">🛡️ SOUTH SECTOR 3</text>
+                    <text x="1000" y="1580" class="sector-label">🏰 SOUTH SECTOR 2</text>
+                    <text x="1400" y="1580" class="sector-label">🔵 SOUTH SECTOR 1</text>
+                    
+                    <text x="350" y="820" class="sector-label">🌅 WEST CENTRAL</text>
+                    <text x="800" y="820" class="sector-label">🏛️ TEMPLE</text>
+                    <text x="1250" y="820" class="sector-label">🌄 EAST CENTRAL</text>
+                </g>
+
+                <!-- Structure Connections -->
+                <g id="structureConnections"></g>
+
+                <!-- Structures -->
+                <g id="structures"></g>
+            </svg>
+
+            <!-- Enhanced Legend -->
+            <div class="legend">
+                <h4>⚔️ Battle Status</h4>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: linear-gradient(45deg, #A9A9A9, #696969);"></div>
+                    <span>🔒 Locked</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: linear-gradient(45deg, #FFA500, #FF8C00);"></div>
+                    <span>⚡ Available</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: linear-gradient(45deg, #98FB98, #32CD32);"></div>
+                    <span>📋 Planned</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: linear-gradient(45deg, #87CEEB, #00BFFF);"></div>
+                    <span>🎯 Battle Day</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: linear-gradient(45deg, #FFD700, #FFA500);"></div>
+                    <span>🏛️ Lobby</span>
+                </div>
+                
+                <h4 style="margin-top: 15px;">🏰 Structures</h4>
+                <div class="legend-item">
+                    <div class="legend-color" style="width: 10px; height: 10px; background: linear-gradient(45deg, #98FB98, #32CD32);"></div>
+                    <span>🏰 Stronghold</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="width: 12px; height: 12px; background: linear-gradient(45deg, #FFA500, #FF8C00);"></div>
+                    <span>🏘️ Towns</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="width: 16px; height: 16px; background: linear-gradient(45deg, #FFD700, #FFA500);"></div>
+                    <span>🏛️ Capitol</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="width: 20px; height: 20px; background: linear-gradient(45deg, #FFD700, #FF8C00);"></div>
+                    <span>🌟 World Center</span>
+                </div>
+            </div>
+
+            <!-- Zoom Controls -->
+            <div class="zoom-controls">
+                <button class="zoom-btn" onclick="zoomIn()" title="Zoom In">+</button>
+                <button class="zoom-btn" onclick="zoomOut()" title="Zoom Out">−</button>
+                <button class="zoom-btn" onclick="resetView()" title="Reset View" style="font-size: 14px;">⌂</button>
+            </div>
+
+            <!-- Info Panel -->
+            <div class="info-panel">
+                <h4>⚔️ War Statistics</h4>
+                <p>Total Structures: <span id="totalStructures">0</span></p>
+                <p>Planned: <span id="plannedCount">0</span></p>
+                <p>⚡ Ready for Battle: <span id="availableToday">0</span></p>
+                <p>🔴 North Forces: <span id="northCount">0</span></p>
+                <p>🔵 South Forces: <span id="southCount">0</span></p>
+                <p>🏛️ Active Lobbies: <span id="lobbyCount">0</span></p>
+            </div>
+        </div>
+
+        <!-- Enhanced Tooltip -->
+        <div class="tooltip" id="tooltip">
+            <div id="tooltipContent"></div>
+        </div>
+    </div>
+
+    <script>
+        // Global variables
+        let currentZoom = 1;
+        let currentFilter = 'all';
+        let structures = [];
+        let plannings = {};
+        let isDragging = false;
+        let dragStart = { x: 0, y: 0 };
+        let viewBox = { x: 0, y: 0, width: 1600, height: 1600 };
+
+        // Initialize map
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeMap();
+            setupEventListeners();
+            
+            // Try to get data from parent window (when embedded)
+            if (window.parent && window.parent !== window) {
+                tryGetDataFromParent();
+            } else {
+                loadExampleData();
+            }
+            
+            // Hide loading after initialization
+            setTimeout(() => {
+                document.getElementById('loadingOverlay').style.display = 'none';
+            }, 1500);
+        });
+
+        function tryGetDataFromParent() {
+            try {
+                if (window.parent.edenData && window.parent.plannings) {
+                    structures = window.parent.edenData;
+                    plannings = window.parent.plannings;
+                    renderStructures();
+                    updateStatistics();
+                } else {
+                    loadExampleData();
+                }
+            } catch (error) {
+                console.log('Could not access parent data, using example data');
+                loadExampleData();
+            }
+        }
+
+        function loadExampleData() {
+            structures = [
+                {
+                    'Occupation': 'Stronghold',
+                    'X': '180', 'Y': '220',
+                    'Faction': 'North', 'Sector': '1', 'Zone': '1', 'Day': '1',
+                    'Faction value': '100', 'Occupation value': '50'
+                },
+                {
+                    'Occupation': 'Capitol Lv5',
+                    'X': '1380', 'Y': '1280',
+                    'Faction': 'South', 'Sector': '1', 'Zone': '1', 'Day': '7',
+                    'Faction value': '100', 'Occupation value': '300'
+                },
+                {
+                    'Occupation': 'World Center Lv.8',
+                    'X': '800', 'Y': '800',
+                    'Faction': 'Central', 'Sector': 'C', 'Zone': '1', 'Day': '14',
+                    'Faction value': '500', 'Occupation value': '800'
+                },
+                {
+                    'Occupation': 'Small Town Lv1',
+                    'X': '320', 'Y': '180',
+                    'Faction': 'North', 'Sector': '1', 'Zone': '1', 'Day': '3',
+                    'Faction value': '50', 'Occupation value': '75'
+                },
+                {
+                    'Occupation': 'Large Town Lv4',
+                    'X': '580', 'Y': '180',
+                    'Faction': 'North', 'Sector': '2', 'Zone': '1', 'Day': '5',
+                    'Faction value': '75', 'Occupation value': '100'
+                },
+                {
+                    'Occupation': 'Lobby of King Cnut',
+                    'X': '420', 'Y': '700',
+                    'Faction': 'West', 'Sector': 'W', 'Zone': '1', 'Day': '7',
+                    'Faction value': '0', 'Occupation value': '0'
+                },
+                {
+                    'Occupation': 'Lobby of Lionheart',
+                    'X': '1180', 'Y': '700',
+                    'Faction': 'East', 'Sector': 'E', 'Zone': '1', 'Day': '14',
+                    'Faction value': '0', 'Occupation value': '0'
+                },
+                {
+                    'Occupation': 'Check Point Lv1',
+                    'X': '250', 'Y': '1350',
+                    'Faction': 'South', 'Sector': '4', 'Zone': '1', 'Day': '21',
+                    'Faction value': '25', 'Occupation value': '25'
+                }
+            ];
+            
+            plannings = {
+                0: { guild: 'Dragon Lords', guildFaction: 'North', priority: 'High' },
+                5: { guild: 'Storm Warriors', guildFaction: 'North', priority: 'Medium' },
+                6: { guild: 'Ocean Kings', guildFaction: 'South', priority: 'High' }
+            };
+            
+            renderStructures();
+            updateStatistics();
+        }
+
+        function initializeMap() {
+            const svg = document.getElementById('mapSvg');
+            
+            // Add sector hover effects
+            const sectors = document.querySelectorAll('.sector');
+            sectors.forEach(sector => {
+                sector.addEventListener('mouseenter', function() {
+                    this.style.strokeWidth = '4';
+                    this.style.filter = 'brightness(1.3) drop-shadow(0 0 15px currentColor)';
+                });
+                sector.addEventListener('mouseleave', function() {
+                    this.style.strokeWidth = '';
+                    this.style.filter = '';
+                });
+            });
+        }
+
+        function setupEventListeners() {
+            // Filter buttons
+            const filterButtons = document.querySelectorAll('.control-btn[data-filter]');
+            filterButtons.forEach(btn => {
+                btn.addEventListener('click', function() {
+                    filterButtons.forEach(b => b.classList.remove('active'));
+                    this.classList.add('active');
+                    currentFilter = this.dataset.filter;
+                    applyFilter();
+                });
+            });
+
+            // Pan and zoom functionality
+            const svg = document.getElementById('mapSvg');
+            
+            svg.addEventListener('mousedown', startDrag);
+            svg.addEventListener('mousemove', drag);
+            svg.addEventListener('mouseup', endDrag);
+            svg.addEventListener('mouseleave', endDrag);
+            svg.addEventListener('wheel', handleWheel);
+
+            // Touch events for mobile
+            svg.addEventListener('touchstart', handleTouchStart, { passive: false });
+            svg.addEventListener('touchmove', handleTouchMove, { passive: false });
+            svg.addEventListener('touchend', handleTouchEnd);
+        }
+
+        function renderStructures() {
+            const structuresGroup = document.getElementById('structures');
+            const connectionsGroup = document.getElementById('structureConnections');
+            structuresGroup.innerHTML = '';
+            connectionsGroup.innerHTML = '';
+
+            structures.forEach((structure, index) => {
+                const x = parseInt(structure.X);
+                const y = parseInt(structure.Y);
+                
+                if (isNaN(x) || isNaN(y) || x < 0 || x > 1600 || y < 0 || y > 1600) {
+                    return;
+                }
+
+                // Create structure group
+                const structureGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+                structureGroup.setAttribute('transform', `translate(${x}, ${1600 - y})`);
+
+                // Create main structure circle
+                const structureElement = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                structureElement.setAttribute('cx', 0);
+                structureElement.setAttribute('cy', 0);
+                
+                const structureClass = getStructureClass(structure.Occupation);
+                const statusClass = getStructureStatus(structure, index);
+                
+                structureElement.setAttribute('class', `structure ${structureClass} ${statusClass}`);
+                structureElement.setAttribute('r', getStructureRadius(structure.Occupation));
+                
+                // Add data attributes
+                structureElement.setAttribute('data-index', index);
+                structureElement.setAttribute('data-type', structure.Occupation);
+                structureElement.setAttribute('data-faction', structure.Faction);
+                structureElement.setAttribute('data-coordinates', `${structure.X}:${structure.Y}`);
+
+                // Add planning indicator
+                if (plannings[index]) {
+                    const indicator = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                    indicator.setAttribute('cx', 10);
+                    indicator.setAttribute('cy', -10);
+                    indicator.setAttribute('r', 4);
+                    indicator.setAttribute('fill', '#32CD32');
+                    indicator.setAttribute('stroke', '#F5DEB3');
+                    indicator.setAttribute('stroke-width', 1);
+                    structureGroup.appendChild(indicator);
+
+                    // Add guild name text
+                    const guildText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                    guildText.setAttribute('x', 0);
+                    guildText.setAttribute('y', getStructureRadius(structure.Occupation) + 18);
+                    guildText.setAttribute('text-anchor', 'middle');
+                    guildText.setAttribute('fill', '#32CD32');
+                    guildText.setAttribute('font-size', '11');
+                    guildText.setAttribute('font-weight', 'bold');
+                    guildText.setAttribute('filter', 'drop-shadow(0 0 3px rgba(0, 0, 0, 0.8))');
+                    guildText.textContent = plannings[index].guild.substring(0, 10);
+                    structureGroup.appendChild(guildText);
+                }
+
+                structureGroup.appendChild(structureElement);
+                
+                // Event listeners
+                structureGroup.addEventListener('mouseenter', showTooltip);
+                structureGroup.addEventListener('mouseleave', hideTooltip);
+                structureGroup.addEventListener('click', selectStructure);
+                
+                structuresGroup.appendChild(structureGroup);
+
+                // Create connections to nearby planned structures
+                if (plannings[index]) {
+                    createConnectionLines(structure, index, connectionsGroup);
+                }
+            });
+
+            applyFilter();
+        }
+
+        function createConnectionLines(structure, index, connectionsGroup) {
+            const planning = plannings[index];
+            if (!planning) return;
+
+            const x1 = parseInt(structure.X);
+            const y1 = 1600 - parseInt(structure.Y);
+
+            // Find other structures from same guild
+            structures.forEach((otherStructure, otherIndex) => {
+                if (otherIndex === index || !plannings[otherIndex]) return;
+                if (plannings[otherIndex].guild !== planning.guild) return;
+
+                const x2 = parseInt(otherStructure.X);
+                const y2 = 1600 - parseInt(otherStructure.Y);
+
+                const distance = Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
+                
+                // Only connect nearby structures (within 400 units)
+                if (distance < 400) {
+                    const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                    line.setAttribute('x1', x1);
+                    line.setAttribute('y1', y1);
+                    line.setAttribute('x2', x2);
+                    line.setAttribute('y2', y2);
+                    line.setAttribute('stroke', planning.guildFaction === 'North' ? 'rgba(178, 34, 34, 0.6)' : 'rgba(70, 130, 180, 0.6)');
+                    line.setAttribute('stroke-width', '3');
+                    line.setAttribute('stroke-dasharray', '8,4');
+                    line.style.animation = 'connectionFlow 4s ease-in-out infinite';
+                    
+                    connectionsGroup.appendChild(line);
+                }
+            });
+        }
+
+        function getStructureClass(occupation) {
+            if (occupation.includes('Stronghold')) return 'stronghold';
+            if (occupation.includes('Small Town')) return 'small-town';
+            if (occupation.includes('Large Town')) return 'large-town';
+            if (occupation.includes('Capitol')) return 'capitol';
+            if (occupation.includes('World Center')) return 'world-center';
+            if (occupation.includes('Lobby')) return 'lobby';
+            if (occupation.includes('Check Point')) return 'checkpoint';
+            return 'stronghold';
+        }
+
+        function getStructureRadius(occupation) {
+            if (occupation.includes('World Center')) return 14;
+            if (occupation.includes('Capitol')) return 10;
+            if (occupation.includes('Large Town')) return 8;
+            if (occupation.includes('Stronghold')) return 7;
+            if (occupation.includes('Lobby')) return 7;
+            if (occupation.includes('Small Town')) return 5;
+            if (occupation.includes('Check Point')) return 4;
+            return 7;
+        }
+
+        function getStructureStatus(structure, index) {
+            if (plannings[index]) {
+                return 'planned';
+            }
+            
+            const day = parseInt(structure.Day);
+            const currentDay = 15; // Example current day
+            
+            if (currentDay >= day) {
+                const today = new Date();
+                const dayOfWeek = today.getDay();
+                if ([0, 2, 4].includes(dayOfWeek)) {
+                    return 'occupation';
+                }
+                return 'available';
+            }
+            
+            return 'locked';
+        }
+
+        function applyFilter() {
+            const structureGroups = document.querySelectorAll('#structures > g');
+            
+            structureGroups.forEach(group => {
+                const structure = group.querySelector('.structure');
+                const type = structure.getAttribute('data-type');
+                const faction = structure.getAttribute('data-faction');
+                const index = structure.getAttribute('data-index');
+                const isPlanned = plannings[index] !== undefined;
+                const isLobby = type.includes('Lobby');
+                const status = getStructureStatus(structures[index], index);
+                
+                let show = true;
+                
+                switch (currentFilter) {
+                    case 'planned':
+                        show = isPlanned;
+                        break;
+                    case 'north':
+                        show = faction === 'North' || (isPlanned && plannings[index].guildFaction === 'North');
+                        break;
+                    case 'south':
+                        show = faction === 'South' || (isPlanned && plannings[index].guildFaction === 'South');
+                        break;
+                    case 'lobbies':
+                        show = isLobby;
+                        break;
+                    case 'available':
+                        show = status === 'available' || status === 'occupation';
+                        break;
+                    case 'all':
+                    default:
+                        show = true;
+                        break;
+                }
+                
+                group.style.display = show ? 'block' : 'none';
+            });
+            
+            updateStatistics();
+        }
+
+        function updateStatistics() {
+            const totalStructures = structures.length;
+            const plannedCount = Object.keys(plannings).length;
+            
+            let availableToday = 0;
+            let northCount = 0;
+            let southCount = 0;
+            let lobbyCount = 0;
+            
+            structures.forEach((structure, index) => {
+                const status = getStructureStatus(structure, index);
+                if (status === 'occupation') availableToday++;
+                
+                if (structure.Occupation.includes('Lobby')) {
+                    if (plannings[index]) lobbyCount++;
+                }
+                
+                if (plannings[index]) {
+                    if (plannings[index].guildFaction === 'North') northCount++;
+                    if (plannings[index].guildFaction === 'South') southCount++;
+                } else {
+                    if (structure.Faction === 'North') northCount++;
+                    if (structure.Faction === 'South') southCount++;
+                }
+            });
+            
+            document.getElementById('totalStructures').textContent = totalStructures;
+            document.getElementById('plannedCount').textContent = plannedCount;
+            document.getElementById('availableToday').textContent = availableToday;
+            document.getElementById('northCount').textContent = northCount;
+            document.getElementById('southCount').textContent = southCount;
+            document.getElementById('lobbyCount').textContent = lobbyCount;
+        }
+
+        function showTooltip(event) {
+            const structure = event.currentTarget.querySelector('.structure');
+            const index = structure.getAttribute('data-index');
+            const structureData = structures[index];
+            const planning = plannings[index];
+            
+            const tooltip = document.getElementById('tooltip');
+            const tooltipContent = document.getElementById('tooltipContent');
+            
+            let content = `
+                <div style="border-bottom: 1px solid rgba(218, 165, 32, 0.4); padding-bottom: 8px; margin-bottom: 8px;">
+                    <strong style="color: #DAA520; font-size: 14px;">${structureData.Occupation}</strong>
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 11px;">
+                    <div><strong>Coordinates:</strong><br>${structureData.X}:${structureData.Y}</div>
+                    <div><strong>Faction:</strong><br>${structureData.Faction}</div>
+                    <div><strong>Opening Day:</strong><br>Day ${structureData.Day}</div>
+                    <div><strong>Points:</strong><br>F:${structureData['Faction value']} | G:${structureData['Occupation value']}</div>
+                </div>
+            `;
+            
+            if (planning) {
+                content += `
+                    <div style="border-top: 1px solid rgba(50, 205, 50, 0.4); padding-top: 8px; margin-top: 8px;">
+                        <strong style="color: #32CD32;">⚔️ War Planning:</strong><br>
+                        <div style="margin-top: 5px; font-size: 11px;">
+                            <div><strong>Guild:</strong> ${planning.guild}</div>
+                            <div><strong>Priority:</strong> <span style="color: ${planning.priority === 'High' ? '#FF6347' : planning.priority === 'Medium' ? '#FFA500' : '#32CD32'}">${planning.priority}</span></div>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            tooltipContent.innerHTML = content;
+            tooltip.classList.add('show');
+            
+            // Position tooltip
+            const rect = structure.getBoundingClientRect();
+            tooltip.style.left = (rect.left + 25) + 'px';
+            tooltip.style.top = (rect.top - tooltip.offsetHeight - 15) + 'px';
+        }
+
+        function hideTooltip() {
+            const tooltip = document.getElementById('tooltip');
+            tooltip.classList.remove('show');
+        }
+
+        function selectStructure(event) {
+            const structure = event.currentTarget.querySelector('.structure');
+            const index = structure.getAttribute('data-index');
+            
+            // Remove previous selection
+            document.querySelectorAll('.structure.selected').forEach(s => {
+                s.classList.remove('selected');
+            });
+            
+            // Add selection
+            structure.classList.add('selected');
+            
+            // Add selection ring
+            const existingRing = event.currentTarget.querySelector('.selection-ring');
+            if (existingRing) existingRing.remove();
+            
+            const ring = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+            ring.setAttribute('class', 'selection-ring');
+            ring.setAttribute('cx', 0);
+            ring.setAttribute('cy', 0);
+            ring.setAttribute('r', getStructureRadius(structures[index].Occupation) + 8);
+            ring.setAttribute('fill', 'none');
+            ring.setAttribute('stroke', '#FFD700');
+            ring.setAttribute('stroke-width', 4);
+            ring.setAttribute('stroke-dasharray', '8,4');
+            ring.style.animation = 'selectionPulse 1.5s ease-in-out infinite';
+            
+            event.currentTarget.appendChild(ring);
+            
+            if (window.parent && window.parent.openPlanningModal) {
+                window.parent.openPlanningModal(index);
+            }
+        }
+
+        // Zoom and Pan functions
+        function zoomIn() {
+            currentZoom = Math.min(currentZoom * 1.4, 10);
+            updateViewBox();
+        }
+
+        function zoomOut() {
+            currentZoom = Math.max(currentZoom / 1.4, 0.2);
+            updateViewBox();
+        }
+
+        function resetView() {
+            currentZoom = 1;
+            viewBox = { x: 0, y: 0, width: 1600, height: 1600 };
+            updateViewBox();
+        }
+
+        function updateViewBox() {
+            const svg = document.getElementById('mapSvg');
+            const newWidth = 1600 / currentZoom;
+            const newHeight = 1600 / currentZoom;
+            
+            viewBox.x = Math.max(0, Math.min(1600 - newWidth, viewBox.x));
+            viewBox.y = Math.max(0, Math.min(1600 - newHeight, viewBox.y));
+            viewBox.width = newWidth;
+            viewBox.height = newHeight;
+            
+            svg.setAttribute('viewBox', `${viewBox.x} ${viewBox.y} ${viewBox.width} ${viewBox.height}`);
+        }
+
+        function startDrag(event) {
+            isDragging = true;
+            dragStart.x = event.clientX;
+            dragStart.y = event.clientY;
+            event.preventDefault();
+        }
+
+        function drag(event) {
+            if (!isDragging) return;
+            
+            const deltaX = (event.clientX - dragStart.x) * (viewBox.width / 800);
+            const deltaY = (event.clientY - dragStart.y) * (viewBox.height / 800);
+            
+            viewBox.x = Math.max(0, Math.min(1600 - viewBox.width, viewBox.x - deltaX));
+            viewBox.y = Math.max(0, Math.min(1600 - viewBox.height, viewBox.y - deltaY));
+            
+            updateViewBox();
+            
+            dragStart.x = event.clientX;
+            dragStart.y = event.clientY;
+        }
+
+        function endDrag() {
+            isDragging = false;
+        }
+
+        function handleWheel(event) {
+            event.preventDefault();
+            
+            if (event.deltaY < 0) {
+                zoomIn();
+            } else {
+                zoomOut();
+            }
+        }
+
+        // Touch events for mobile
+        function handleTouchStart(event) {
+            if (event.touches.length === 1) {
+                event.preventDefault();
+                const touch = event.touches[0];
+                startDrag({ clientX: touch.clientX, clientY: touch.clientY, preventDefault: () => {} });
+            }
+        }
+
+        function handleTouchMove(event) {
+            if (event.touches.length === 1 && isDragging) {
+                event.preventDefault();
+                const touch = event.touches[0];
+                drag({ clientX: touch.clientX, clientY: touch.clientY });
+            }
+        }
+
+        function handleTouchEnd(event) {
+            event.preventDefault();
+            endDrag();
+        }
+
+        // Function to refresh data from parent
+        window.refreshMapData = function(newStructures, newPlannings) {
+            structures = newStructures || structures;
+            plannings = newPlannings || plannings;
+            renderStructures();
+            updateStatistics();
+        };
+
+        // Export functions for parent window
+        window.miniMap = {
+            refreshData: window.refreshMapData,
+            selectStructure: function(index) {
+                const structureGroup = document.querySelector(`[data-index="${index}"]`)?.parentElement;
+                if (structureGroup) {
+                    selectStructure({ currentTarget: structureGroup });
+                }
+            }
+        };
+
+        // Add dynamic CSS animations
+        const style = document.createElement('style');
+        style.textContent = `
+            @keyframes connectionFlow {
+                0%, 100% { stroke-dashoffset: 0; stroke-opacity: 0.4; }
+                50% { stroke-dashoffset: 12; stroke-opacity: 0.8; }
+            }
+            
+            @keyframes selectionPulse {
+                0%, 100% { stroke-opacity: 1; transform: scale(1); }
+                50% { stroke-opacity: 0.6; transform: scale(1.1); }
+            }
+        `;
+        document.head.appendChild(style);
+    </script>
+</body>
+</html>
