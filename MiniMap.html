@@ -1438,6 +1438,43 @@
             }
         `;
         document.head.appendChild(style);
+	// Listener para receber dados do sistema principal
+	window.addEventListener('message', function(event) {
+	    // Verifica a origem da mensagem por segurança
+	    if (event.origin !== 'https://www.wix.com' && 
+	        event.origin !== 'https://riseofcastlesnet.wixsite.com' && 
+	        !event.origin.includes('wix.com')) {
+	        // Se não for do Wix, ignora (ajuste para seu domínio)
+	        return;
+	    }
+	    
+	    // Processa a mensagem
+	    if (event.data.type === 'updateMapData') {
+	        console.log('Received map data from parent:', event.data);
+	        
+	        // Atualiza as estruturas e planejamentos
+	        if (event.data.structures) {
+	            structures = event.data.structures;
+	        }
+	        if (event.data.plannings) {
+	            plannings = event.data.plannings;
+	        }
+	        
+	        // Re-renderiza o mapa
+	        renderStructures();
+	        updateStatistics();
+	    }
+	});
+	
+	// Envia mensagem para o parent quando o mapa estiver pronto
+	window.addEventListener('load', function() {
+	    // Notifica o parent que está pronto para receber dados
+	    if (window.parent !== window) {
+	        window.parent.postMessage({
+	            type: 'mapReady'
+	        }, '*');
+	    }
+	});
     </script>
 </body>
 </html>
